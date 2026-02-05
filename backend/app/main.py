@@ -66,3 +66,6 @@ async def startup_event():
         logger.info("SiliconCloud LLM and Embeddings initialized")
     except Exception as e:
         logger.error(f"Failed to initialize SiliconCloud LLM: {e}")
+
+
+# 如何推动冰雪经济?

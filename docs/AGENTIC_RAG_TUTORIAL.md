@@ -450,40 +450,87 @@ def get_session_store():
 
 ### 9.1 场景问题
 
-如何让系统更智能？例如，当检索结果为空时，不是胡乱回答，而是诚实地说“不知道”或者尝试通过网络搜索（Tool use）。
+如何让系统更智能？例如，当检索结果为空时，不是胡乱回答，而是诚实地说“不知道”或者尝试通过网络搜索（Tool use）。此外，我们还需要确保回答的准确性和安全性，防止幻觉和违规内容。
 
 ### 9.2 设计思路
 
 - **LangGraph**: 定义图结构 `StateGraph`。
-- **Nodes**: `retrieve` (检索), `generate` (生成)。
-- **Edges**: 定义流转逻辑。
+- **高级决策流**:
+  - **Router**: 意图识别，区分闲聊（Direct Answer）与知识问答（RAG）。
+  - **Rewrite**: 查询重写，优化检索关键词。
+  - **Relevance Evaluation**: 检索后相关性评估，不相关则触发重试或知识库缺失告警。
+  - **Compliance Evaluation**: 生成后合规性检查，自动修正敏感或违规内容。
+- **闭环优化**: 包含 "Retrieve-Evaluate-Rewrite-Loop" 和 "Generate-Evaluate-Fix-Loop" 双重闭环。
 
 ### 9.3 关键代码讲解
 
 **backend/app/rag/pipeline.py**:
 
 ```python
-from langgraph.graph import Graph
+from langgraph.graph import StateGraph, END
 
-def build_graph(llm):
-    workflow = Graph()
-  
-    def retrieve_node(state):
-        # 执行检索，更新 state['context']
-        pass
-      
-    def generate_node(state):
-        # 基于 state['context'] 和 state['history'] 生成回答
-        pass
-      
-    workflow.add_node("retrieve", retrieve_node)
-    workflow.add_node("generate", generate_node)
-  
-    workflow.set_entry_point("retrieve")
-    workflow.add_edge("retrieve", "generate")
-    workflow.set_finish_point("generate")
-  
-    return workflow.compile()
+class AgentPipeline:
+    def _build_graph(self):
+        workflow = StateGraph(AgentState)
+        
+        # 核心节点
+        workflow.add_node("router", self._router)           # 意图路由
+        workflow.add_node("rewrite", self._rewrite)         # 查询重写
+        workflow.add_node("retrieve", self._retrieve)       # 文档检索
+        workflow.add_node("generate", self._generate)       # 答案生成
+        
+        # 评估与优化节点
+        workflow.add_node("evaluate_relevance", self._evaluate_relevance)   # 相关性评估
+        workflow.add_node("rewrite_relevance", self._rewrite_relevance)     # 检索失败重写
+        workflow.add_node("knowledge_fallback", self._knowledge_fallback)   # 知识缺失兜底
+        workflow.add_node("evaluate_compliance", self._evaluate_compliance) # 合规性评估
+        workflow.add_node("fix_generation", self._fix_generation)           # 违规修正
+        workflow.add_node("fallback_safe", self._fallback_safe)             # 安全降级
+        
+        # 定义流转逻辑
+        workflow.set_entry_point("router")
+        
+        # 1. 路由分支
+        workflow.add_conditional_edges(
+            "router",
+            self._route_decision,
+            {
+                "direct": "direct_answer",
+                "rewrite": "rewrite"
+            }
+        )
+        
+        # 2. 检索闭环 (Rewrite -> Retrieve -> Eval -> Rewrite)
+        def check_relevance(state):
+            if state.get("is_relevant"):
+                return "generate"
+            elif state.get("retrieve_count", 0) < 2:
+                return "rewrite_relevance" # 重试
+            else:
+                return "knowledge_fallback" # 放弃
+
+        workflow.add_conditional_edges(
+            "evaluate_relevance", 
+            check_relevance,
+            {"generate": "generate", "rewrite_relevance": "rewrite_relevance", "knowledge_fallback": "knowledge_fallback"}
+        )
+        
+        # 3. 生成闭环 (Generate -> Eval -> Fix -> Generate)
+        def check_compliance(state):
+            if not state.get("compliance_issues"):
+                return "end"
+            elif state.get("generate_count", 0) < 2:
+                return "fix"
+            else:
+                return "fallback"
+
+        workflow.add_conditional_edges(
+            "evaluate_compliance",
+            check_compliance,
+            {"end": END, "fix": "fix_generation", "fallback": "fallback_safe"}
+        )
+
+        return workflow.compile()
 ```
 
 ---

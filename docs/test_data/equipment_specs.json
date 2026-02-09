@@ -1,0 +1,15 @@
+{
+  "equipment": "Pro Ski 2025",
+  "specs": {
+    "material": "Carbon Fiber",
+    "length_cm": 170,
+    "weight_kg": 1.5,
+    "features": [
+      "AI-driven balance control",
+      "Heated grip",
+      "GPS tracking"
+    ]
+  },
+  "safety_rating": "A+",
+  "price_cny": 5999
+}

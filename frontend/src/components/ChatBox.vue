@@ -7,7 +7,7 @@
       </div>
     </div>
     <div style="display:flex; gap:8px; margin-top:12px;">
-      <input v-model="input" placeholder="请输入问题..." style="flex:1; padding:8px;" />
+      <input v-model="input" @keyup.enter="send" placeholder="请输入问题..." style="flex:1; padding:8px;" />
       <button @click="send">发送</button>
     </div>
     <div style="margin-top:8px; font-size:12px; color:#666;">延迟: {{ latency }} ms</div>
@@ -25,10 +25,18 @@ const latency = ref(0);
 
 async function send(){
   if(!input.value) return;
-  messages.value.push({role:"user", content: input.value});
-  const resp = await client.chat(sessionId, input.value);
-  messages.value.push({role:"assistant", content: resp.answer});
-  latency.value = resp.latency_ms;
-  input.value = "";
+  const content = input.value;
+  input.value = ""; // Clear input immediately
+  messages.value.push({role:"user", content: content});
+  
+  try {
+    const resp = await client.chat(sessionId, content);
+    messages.value.push({role:"assistant", content: resp.answer});
+    latency.value = resp.latency_ms;
+  } catch (err) {
+    messages.value.push({role:"assistant", content: "Error: " + err.message});
+    // Optional: restore input on error? 
+    // input.value = content; 
+  }
 }
 </script>
